@@ -21,9 +21,13 @@ class Constants(str, Enum):
 
 
 class CveRecordValidationError(Exception):
-    def __init__(self, message, errors):
-        super().__init__(message)
+    def __init__(self, *args, **kwargs):
+        errors = kwargs.pop("errors", None)
         self.errors = errors
+        super().__init__(*args, **kwargs)
+
+    def __reduce__(self):
+        return CveRecordValidationError, (self.args,)
 
 
 class CveRecord:
@@ -34,15 +38,27 @@ class CveRecord:
         V5_SCHEMA = next(SCHEMA_DIR.glob("CVE_JSON_5.0_bundled_*.json"))
 
     @classmethod
-    def validate(cls, cve_json: dict, schema_path: str) -> None:
+    def validate(cls, cve_json: dict, schema_path: Optional[str] = None) -> None:
+        """Validate a CVE record against a JSON schema.
+
+        Optionally, specify a path to a JSON schema file with which to validate the record; if not
+        specified, the Published CNA container schema bundled in cvelib/schemas/ is used. All
+        other schemas in that directory must be explicitly specified, e.g.:
+
+        CveRecord.validate(cve_json, schema_path=CveRecord.Schemas.CNA_REJECTED)
+        """
+        if schema_path is None:
+            schema_path = cls.Schemas.CNA_PUBLISHED
+
         with open(schema_path) as schema_file:
             schema = json.load(schema_file)
 
         validator = Draft7Validator(schema)
-        errors = [error.message for error in sorted(validator.iter_errors(cve_json), key=str)]
+        errors = sorted(validator.iter_errors(cve_json), key=lambda e: e.message)
         if errors:
+            errors_str = "\n".join(e.message for e in errors)
             raise CveRecordValidationError(
-                f"Schema validation against {schema_path} failed", errors
+                f"Schema validation against {schema_path} failed:\n{errors_str}", errors=errors
             )
 
 
